@@ -22,6 +22,10 @@ sbom/
 *.sbom.json
 *.spdx.json
 
+# Local diagnostics / debug output
+logs/
+debug/
+
 # Virtualenvs
 venv/
 

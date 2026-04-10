@@ -20,7 +20,16 @@ else
   fi
   echo "Creating PLCreX virtualenv at $VENV_DIR"
   "$BOOTSTRAP_PYTHON" -m venv "$VENV_DIR"
-  PYTHON_BIN="$VENV_DIR/bin/python"
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    PYTHON_BIN="$VENV_DIR/bin/python"
+  elif [[ -x "$VENV_DIR/Scripts/python.exe" ]]; then
+    PYTHON_BIN="$VENV_DIR/Scripts/python.exe"
+  elif [[ -x "$VENV_DIR/Scripts/python" ]]; then
+    PYTHON_BIN="$VENV_DIR/Scripts/python"
+  else
+    echo "Could not locate a Python interpreter inside $VENV_DIR after creating the PLCreX virtualenv."
+    exit 1
+  fi
 fi
 
 mkdir -p "$REPO_ROOT/vendor"

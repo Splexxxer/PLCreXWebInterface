@@ -2,11 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 
 import './index.css'
 
-type UpcomingItem = {
-  title: string
-  detail: string
-}
-
 type PlcrexCommand = {
   name: string
   summary: string
@@ -15,40 +10,22 @@ type PlcrexCommand = {
 
 type FetchState = 'idle' | 'loading' | 'success' | 'error'
 
-const upcoming: UpcomingItem[] = [
-  {
-    title: 'Session-aware diagnostics',
-    detail: 'Lightweight views that will read from sessionStorage once runtime wiring is in place.'
-  },
-  {
-    title: 'PLCreX controls',
-    detail: 'Trigger PLCreX runs through backend-managed processes without shipping the engine itself.'
-  },
-  {
-    title: 'Packaging hooks',
-    detail: 'Bake the built frontend, FastAPI backend, and PLCreX payload into a single container.'
-  }
-]
-
 function App() {
   const [commands, setCommands] = useState<PlcrexCommand[]>([])
   const [commandState, setCommandState] = useState<FetchState>('idle')
   const [commandError, setCommandError] = useState<string | null>(null)
-  const [lastUpdated, setLastUpdated] = useState<string>('')
 
-  const fetchCommands = useCallback(async (refresh = false) => {
+  const fetchCommands = useCallback(async () => {
     setCommandState('loading')
     setCommandError(null)
     try {
-      const url = refresh ? '/api/commands?refresh=true' : '/api/commands'
-      const response = await fetch(url)
+      const response = await fetch('/api/commands')
       if (!response.ok) {
         throw new Error('Unable to load PLCreX commands')
       }
       const data = (await response.json()) as PlcrexCommand[]
       setCommands(data)
       setCommandState('success')
-      setLastUpdated(new Date().toLocaleTimeString())
     } catch (error) {
       setCommandState('error')
       setCommandError(error instanceof Error ? error.message : 'Unknown error while loading commands')
@@ -60,89 +37,84 @@ function App() {
   }, [fetchCommands])
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-10 px-6 py-12">
-        <header>
-          <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
-            PLCreX Web Interface
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold text-slate-900">
-            Minimal React starter for the PLCreX runtime console
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#f8fbff_0%,_#ecf3ff_45%,_#dbe7f5_100%)] text-slate-950">
+      <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 sm:px-8 lg:px-12">
+        <header className="border-b border-slate-300/70 pb-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.45em] text-slate-500">Command Catalog</p>
+          <h1 className="mt-3 font-['Space_Grotesk',_'Segoe_UI',_sans-serif] text-5xl font-bold tracking-tight text-slate-950 sm:text-6xl">
+            PLCreX
           </h1>
-          <p className="mt-3 text-base text-slate-600">
-            This page is intentionally bare-bones. React, TypeScript, Tailwind, and Vite are wired up
-            so future work can focus on the PLCreX user experience while FastAPI serves the built
-            assets.
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+            Available commands are discovered directly from the installed PLCreX runtime and rendered as a
+            structured command board.
           </p>
         </header>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="flex-1 py-8">
+          <div className="mb-6 flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold text-slate-900">Available PLCreX commands</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Available Commands</h2>
               <p className="text-sm text-slate-600">
-                Commands are read dynamically from <code>plcrex --help</code> so UI controls stay in sync with
-                the locally pulled PLCreX version.
+                {commandState === 'success'
+                  ? `${commands.length} command${commands.length === 1 ? '' : 's'} loaded`
+                  : 'Loading commands from the PLCreX help output'}
               </p>
             </div>
-            <button
-              className="rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={() => {
-                void fetchCommands(true)
-              }}
-              disabled={commandState === 'loading'}
-            >
-              {commandState === 'loading' ? 'Refreshing…' : 'Refresh commands'}
-            </button>
-          </div>
-
-          <div className="mt-4 text-xs text-slate-500">
-            {commandState === 'success' && lastUpdated && <span>Last updated at {lastUpdated}</span>}
-            {commandState === 'error' && commandError && (
-              <span className="text-red-600">{commandError}</span>
-            )}
             {commandState === 'loading' && (
-              <span>{lastUpdated ? 'Refreshing command catalog…' : 'Loading command catalog…'}</span>
+              <div className="rounded-full border border-slate-300 bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
+                Loading
+              </div>
             )}
           </div>
 
-          <ul className="mt-6 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50">
-            {commands.map((command) => (
-              <li key={command.name} className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="font-semibold text-slate-900">{command.name}</p>
-                  <p className="text-slate-600">{command.summary || 'No summary available'}</p>
-                </div>
-                {command.io && <p className="text-xs text-slate-500">{command.io}</p>}
-              </li>
-            ))}
-            {commands.length === 0 && commandState !== 'loading' && (
-              <li className="px-4 py-6 text-center text-sm text-slate-500">
-                No commands detected yet. Ensure PLCreX is available locally and try refreshing.
-              </li>
-            )}
-          </ul>
-        </section>
+          {commandState === 'error' && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+              {commandError ?? 'Unable to load PLCreX commands.'} Reload the page after fixing the backend
+              connection.
+            </div>
+          )}
 
-        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Development checklist</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Run the backend and frontend dev servers independently for now. The backend will later
-            proxy the built frontend bundle.
-          </p>
-          <ul className="mt-6 space-y-4">
-            {upcoming.map((item) => (
-              <li key={item.title} className="rounded-lg border border-slate-100 bg-slate-50 p-4">
-                <p className="text-sm font-semibold text-slate-800">{item.title}</p>
-                <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
+          {commandState !== 'error' && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {commands.map((command) => (
+                <article
+                  key={command.name}
+                  className="flex min-h-48 flex-col rounded-3xl border border-slate-300/70 bg-white/90 p-5 shadow-[0_18px_45px_rgba(15,23,42,0.08)] backdrop-blur"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="text-lg font-semibold leading-6 text-slate-950">{command.name}</h3>
+                    <span className="rounded-full bg-slate-950 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-white">
+                      PLCreX
+                    </span>
+                  </div>
 
-        <footer className="mt-auto text-xs text-slate-500">
-          FastAPI will serve this bundle from <code>frontend/dist</code> after running the Vite build.
-        </footer>
+                  <p className="mt-4 flex-1 text-sm leading-6 text-slate-600">
+                    {command.summary || 'No summary available.'}
+                  </p>
+
+                  <div className="mt-5 border-t border-slate-200 pt-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">IO</p>
+                    <p className="mt-2 text-sm font-medium text-slate-700">{command.io || 'Not specified'}</p>
+                  </div>
+                </article>
+              ))}
+
+              {commandState === 'loading' &&
+                Array.from({ length: 6 }).map((_, index) => (
+                  <div
+                    key={`skeleton-${index}`}
+                    className="min-h-48 animate-pulse rounded-3xl border border-slate-200 bg-white/70 p-5"
+                  >
+                    <div className="h-5 w-32 rounded bg-slate-200" />
+                    <div className="mt-4 h-4 w-full rounded bg-slate-100" />
+                    <div className="mt-2 h-4 w-4/5 rounded bg-slate-100" />
+                    <div className="mt-10 h-3 w-12 rounded bg-slate-200" />
+                    <div className="mt-3 h-4 w-24 rounded bg-slate-100" />
+                  </div>
+                ))}
+            </div>
+          )}
+        </section>
       </main>
     </div>
   )

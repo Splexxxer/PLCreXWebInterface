@@ -1,17 +1,22 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
-default_python := "python3"
+default_python := if os_family() == "windows" { "python" } else { "python3" }
 default_npm := "npm"
 default_uvicorn_host := "0.0.0.0"
 default_uvicorn_port := "8000"
 default_docker_container_name := "plcrex-web-dev"
+default_plcrex_help_command := if os_family() == "windows" {
+  "../.venv-plcrex/Scripts/python.exe -m plcrex --help"
+} else {
+  "../.venv-plcrex/bin/python -m plcrex --help"
+}
 dev_pid_file := ".devserver-pids"
 
 default:
 	@just --list
 
 pull-plcrex:
-	./scripts/pull_plcrex.sh
+	env -u PYTHON PYTHON_BOOTSTRAP="${PYTHON_BOOTSTRAP:-${PYTHON:-{{default_python}}}}" ./scripts/pull_plcrex.sh
 
 install:
 	${PYTHON:-{{default_python}}} -m pip install --upgrade pip setuptools wheel
@@ -26,17 +31,17 @@ frontend-build:
 	cd frontend && ${NPM:-{{default_npm}}} run build
 
 backend-dev:
-	cd backend && ${PYTHON:-{{default_python}}} -m uvicorn app.main:app --reload --host ${UVICORN_HOST:-{{default_uvicorn_host}}} --port ${UVICORN_PORT:-{{default_uvicorn_port}}}
+	cd backend && PLCREX_HELP_COMMAND="${PLCREX_HELP_COMMAND:-{{default_plcrex_help_command}}}" ${PYTHON:-{{default_python}}} -m uvicorn app.main:app --reload --host ${UVICORN_HOST:-{{default_uvicorn_host}}} --port ${UVICORN_PORT:-{{default_uvicorn_port}}}
 
 package:
-	./scripts/package_app.sh
+	env -u PYTHON PYTHON_BOOTSTRAP="${PYTHON_BOOTSTRAP:-${PYTHON:-{{default_python}}}}" ./scripts/package_app.sh
 
 dev-up:
 	rm -f {{dev_pid_file}}; \
 	trap 'pids=$(jobs -p); if [ -n "$pids" ]; then kill $pids; fi; rm -f {{dev_pid_file}}' EXIT; \
 	: > {{dev_pid_file}}; \
 	frontend_cmd() { cd frontend && exec ${NPM:-{{default_npm}}} run dev -- --host; }; \
-	backend_cmd() { cd backend && exec ${PYTHON:-{{default_python}}} -m uvicorn app.main:app --reload --host ${UVICORN_HOST:-{{default_uvicorn_host}}} --port ${UVICORN_PORT:-{{default_uvicorn_port}}}; }; \
+	backend_cmd() { cd backend && exec env PLCREX_HELP_COMMAND="${PLCREX_HELP_COMMAND:-{{default_plcrex_help_command}}}" ${PYTHON:-{{default_python}}} -m uvicorn app.main:app --reload --host ${UVICORN_HOST:-{{default_uvicorn_host}}} --port ${UVICORN_PORT:-{{default_uvicorn_port}}}; }; \
 	frontend_cmd & frontend_pid=$!; \
 	echo "$frontend_pid" >> {{dev_pid_file}}; \
 	backend_cmd & backend_pid=$!; \
@@ -63,14 +68,14 @@ dev-down:
 	}
 
 docker-build:
-	if [ ! -d vendor/PLCreX/.git ]; then ./scripts/pull_plcrex.sh; fi
+	if [ ! -d vendor/PLCreX/.git ]; then env -u PYTHON PYTHON_BOOTSTRAP="${PYTHON_BOOTSTRAP:-${PYTHON:-{{default_python}}}}" ./scripts/pull_plcrex.sh; fi
 	docker build -t plcrex-web .
 
 docker-run:
 	docker run --rm --name ${DOCKER_CONTAINER_NAME:-{{default_docker_container_name}}} -p 8000:8000 plcrex-web
 
 docker-build-upgrade:
-	./scripts/pull_plcrex.sh
+	env -u PYTHON PYTHON_BOOTSTRAP="${PYTHON_BOOTSTRAP:-${PYTHON:-{{default_python}}}}" ./scripts/pull_plcrex.sh
 	just docker-build
 
 down:

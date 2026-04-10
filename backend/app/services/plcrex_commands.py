@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import sys
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
@@ -18,6 +19,7 @@ from ..models.plcrex import PlcrexCommand
 HELP_COMMAND_ENV = "PLCREX_HELP_COMMAND"
 VENDOR_ENV = "PLCREX_VENDOR_PATH"
 DEFAULT_HELP_COMMAND = [sys.executable, "-m", "plcrex", "--help"]
+logger = logging.getLogger(__name__)
 
 COMMAND_SECTION_HEADER = "Commands"
 TABLE_ROW_PREFIX = "│"
@@ -46,6 +48,10 @@ def build_env() -> dict[str, str]:
     """Build an environment ensuring PLCreX is on PYTHONPATH when installed from vendor."""
 
     env = os.environ.copy()
+    # PLCreX help uses Typer/Rich. On Windows subprocess pipes can default to cp1252,
+    # which crashes on unicode glyphs like the arrow in "*.xml → *.sctx".
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
     vendor_path = get_vendor_path()
     if vendor_path:
         python_path = env.get("PYTHONPATH")
@@ -59,7 +65,7 @@ def build_help_command() -> list[str]:
 
     override = os.getenv(HELP_COMMAND_ENV)
     if override:
-        return shlex.split(override)
+        return shlex.split(override, posix=os.name != "nt")
     return DEFAULT_HELP_COMMAND
 
 
@@ -67,6 +73,7 @@ def read_plcrex_help() -> str:
     """Execute the PLCreX help command and return stdout."""
 
     command = build_help_command()
+    logger.info("Running PLCreX help command: %s", command)
     try:
         completed = subprocess.run(
             command,
@@ -74,15 +81,25 @@ def read_plcrex_help() -> str:
             check=True,
             env=build_env(),
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except FileNotFoundError as exc:
+        logger.exception("PLCreX help command executable not found")
         raise PlcrexCommandError(f"Unable to execute PLCreX help command: {exc}") from exc
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.strip() if exc.stderr else ""
         message = stderr or "PLCreX help command failed"
+        logger.error(
+            "PLCreX help command failed with return code %s. stderr=%s stdout=%s",
+            exc.returncode,
+            stderr,
+            exc.stdout.strip() if exc.stdout else "",
+        )
         raise PlcrexCommandError(message) from exc
 
-    return completed.stdout
+    logger.info("PLCreX help command completed successfully")
+    return completed.stdout or ""
 
 
 def parse_command_table(lines: Iterable[str]) -> list[PlcrexCommand]:
