@@ -9,6 +9,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv-plcrex/
 .env
 .env.*
 
@@ -32,3 +33,10 @@ venv/
 # Docker / container leftovers
 *.tar
 *.tar.gz
+
+# Keep patched sdists we ship intentionally
+!vendor/patched-packages/
+!vendor/patched-packages/*.tar.gz
+
+# Dev server pid tracking
+.devserver-pids

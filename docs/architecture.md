@@ -221,6 +221,12 @@ The UI should only show:
 - finished output
 - error output
 
+### PLCreX command catalog
+- The frontend must present available PLCreX commands/options dynamically.
+- It should not hardcode the list because PLCreX versions can add or remove commands between releases.
+- Fetch the command list from the backend at runtime before rendering relevant controls.
+- A refresh button or automatic refresh on load is sufficient; no persistent caching is required on the client.
+
 ### Explicitly not required
 - no live logs
 - no streaming logs
@@ -252,11 +258,12 @@ Do not treat browser history as an authoritative backend record.
 ## 9. Backend Architecture
 
 ### Responsibilities
-The backend has four responsibilities only:
+The backend has these responsibilities only:
 - serve the frontend build,
 - expose a small HTTP API,
 - spawn PLCreX processes,
-- return results or errors.
+- return results or errors,
+- surface the current PLCreX command catalog by inspecting the CLI help output.
 
 ### Non-responsibilities
 The backend must not become:
@@ -273,16 +280,18 @@ Suggested implementation approach:
 - use temporary working directories,
 - capture stdout/stderr,
 - return error output on failure,
-- clean up temporary files after request completion.
+- clean up temporary files after request completion,
+- provide helpers that run `plcrex --help` (or equivalent) and parse the output into a command catalog exposed through the API.
 
 ### API style
-Keep the API minimal.
+Keep the API minimal, but expose a dynamic command catalog derived from the PLCreX CLI help output so the frontend can stay in sync with new releases.
 
-Suggested endpoints:
-- `POST /api/run` — upload file and start execution
-- `GET /api/health` — health check
+Required endpoints:
+- `GET /api/commands` — run `plcrex --help` (or similar) and return a parsed command/argument description.
+- `POST /api/run` — upload file and start execution using the parameters provided by the user via the command catalog.
+- `GET /api/health` — health check.
 
-Optional small additions are acceptable if needed for clean implementation, but the API should remain minimal.
+Optional small additions are acceptable if needed for clean implementation, but the API should remain minimal beyond the endpoints listed above.
 
 ### Result handling
 The first implementation should prefer simple request/response behavior.

@@ -1,9 +1,19 @@
+import { useCallback, useEffect, useState } from 'react'
+
 import './index.css'
 
 type UpcomingItem = {
   title: string
   detail: string
 }
+
+type PlcrexCommand = {
+  name: string
+  summary: string
+  io?: string | null
+}
+
+type FetchState = 'idle' | 'loading' | 'success' | 'error'
 
 const upcoming: UpcomingItem[] = [
   {
@@ -21,6 +31,34 @@ const upcoming: UpcomingItem[] = [
 ]
 
 function App() {
+  const [commands, setCommands] = useState<PlcrexCommand[]>([])
+  const [commandState, setCommandState] = useState<FetchState>('idle')
+  const [commandError, setCommandError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<string>('')
+
+  const fetchCommands = useCallback(async (refresh = false) => {
+    setCommandState('loading')
+    setCommandError(null)
+    try {
+      const url = refresh ? '/api/commands?refresh=true' : '/api/commands'
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error('Unable to load PLCreX commands')
+      }
+      const data = (await response.json()) as PlcrexCommand[]
+      setCommands(data)
+      setCommandState('success')
+      setLastUpdated(new Date().toLocaleTimeString())
+    } catch (error) {
+      setCommandState('error')
+      setCommandError(error instanceof Error ? error.message : 'Unknown error while loading commands')
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchCommands()
+  }, [fetchCommands])
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-10 px-6 py-12">
@@ -37,6 +75,54 @@ function App() {
             assets.
           </p>
         </header>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Available PLCreX commands</h2>
+              <p className="text-sm text-slate-600">
+                Commands are read dynamically from <code>plcrex --help</code> so UI controls stay in sync with
+                the locally pulled PLCreX version.
+              </p>
+            </div>
+            <button
+              className="rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => {
+                void fetchCommands(true)
+              }}
+              disabled={commandState === 'loading'}
+            >
+              {commandState === 'loading' ? 'Refreshing…' : 'Refresh commands'}
+            </button>
+          </div>
+
+          <div className="mt-4 text-xs text-slate-500">
+            {commandState === 'success' && lastUpdated && <span>Last updated at {lastUpdated}</span>}
+            {commandState === 'error' && commandError && (
+              <span className="text-red-600">{commandError}</span>
+            )}
+            {commandState === 'loading' && (
+              <span>{lastUpdated ? 'Refreshing command catalog…' : 'Loading command catalog…'}</span>
+            )}
+          </div>
+
+          <ul className="mt-6 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50">
+            {commands.map((command) => (
+              <li key={command.name} className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold text-slate-900">{command.name}</p>
+                  <p className="text-slate-600">{command.summary || 'No summary available'}</p>
+                </div>
+                {command.io && <p className="text-xs text-slate-500">{command.io}</p>}
+              </li>
+            ))}
+            {commands.length === 0 && commandState !== 'loading' && (
+              <li className="px-4 py-6 text-center text-sm text-slate-500">
+                No commands detected yet. Ensure PLCreX is available locally and try refreshing.
+              </li>
+            )}
+          </ul>
+        </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-900">Development checklist</h2>
