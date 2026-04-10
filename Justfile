@@ -15,8 +15,17 @@ dev_pid_file := ".devserver-pids"
 default:
 	@just --list
 
+create-python-env:
+	${PYTHON_CREATE:-python} -m venv .venv
+
 pull-plcrex:
 	env -u PYTHON PYTHON_BOOTSTRAP="${PYTHON_BOOTSTRAP:-${PYTHON:-{{default_python}}}}" ./scripts/pull_plcrex.sh
+
+stage-runtime-tools:
+	./scripts/stage_runtime_tools.sh stage
+
+runtime-tools-status:
+	./scripts/stage_runtime_tools.sh status
 
 install:
 	${PYTHON:-{{default_python}}} -m pip install --upgrade pip setuptools wheel

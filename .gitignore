@@ -44,3 +44,7 @@ venv/
 
 # Dev server pid tracking
 .devserver-pids
+
+# Local runtime temp workspaces
+.tmp/
+backend/.tmp/
