@@ -1,0 +1,9 @@
+.git
+.gitignore
+.build
+node_modules
+frontend/node_modules
+frontend/dist
+vendor/PLCreX/.git
+__pycache__
+*.pyc

@@ -1,0 +1,34 @@
+# Node / frontend artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.log
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.*
+
+# PLCreX vendor checkout
+vendor/PLCreX/
+
+# Packaging + SBOM outputs
+.build/
+sbom/
+*.sbom.json
+*.spdx.json
+
+# Virtualenvs
+venv/
+
+# macOS / editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Docker / container leftovers
+*.tar
+*.tar.gz
