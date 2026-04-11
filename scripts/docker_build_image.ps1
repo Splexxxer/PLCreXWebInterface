@@ -18,6 +18,8 @@ $resolvedOutputDir = Join-Path $repoRoot $OutputDir
 $imageRef = "{0}:{1}" -f $ImageName, $ImageTag
 $archiveName = "{0}-{1}.tar" -f $ImageName, $ImageTag
 $archivePath = Join-Path $resolvedOutputDir $archiveName
+$sbomName = "{0}-{1}.sbom.json" -f $ImageName, $ImageTag
+$sbomPath = Join-Path $resolvedOutputDir $sbomName
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "Docker CLI not found. Install Docker Desktop and switch it to Windows container mode."
@@ -46,6 +48,48 @@ if ($dockerServerOs.Trim() -ne "windows") {
 
 New-Item -ItemType Directory -Force -Path $resolvedOutputDir | Out-Null
 
+$plcrexPyprojectPath = Join-Path $vendorPath "pyproject.toml"
+if (-not (Test-Path $plcrexPyprojectPath)) {
+    throw "PLCreX pyproject.toml not found at $plcrexPyprojectPath"
+}
+
+$plcrexPyprojectContent = Get-Content $plcrexPyprojectPath -Raw
+$versionMatch = [regex]::Match($plcrexPyprojectContent, '(?m)^version\s*=\s*"([^"]+)"')
+if (-not $versionMatch.Success) {
+    throw "Unable to determine PLCreX version from $plcrexPyprojectPath"
+}
+$plcrexVersion = $versionMatch.Groups[1].Value
+
+$plcrexCommit = (& git -C $vendorPath rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($plcrexCommit)) {
+    throw "Unable to determine PLCreX git commit."
+}
+
+$plcrexCommitDate = (& git -C $vendorPath log -1 --format=%cI).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to determine PLCreX git commit date."
+}
+
+$plcrexCommitSubject = (& git -C $vendorPath log -1 --format=%s).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to determine PLCreX git commit subject."
+}
+
+$repoCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoCommit)) {
+    throw "Unable to determine repository git commit."
+}
+
+$repoCommitDate = (& git -C $repoRoot log -1 --format=%cI).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to determine repository git commit date."
+}
+
+$repoCommitSubject = (& git -C $repoRoot log -1 --format=%s).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to determine repository git commit subject."
+}
+
 Write-Host "Building Windows container image $imageRef"
 docker build --file $resolvedDockerfile --tag $imageRef $repoRoot
 if ($LASTEXITCODE -ne 0) {
@@ -62,6 +106,30 @@ if ($LASTEXITCODE -ne 0) {
     throw "Docker save failed for $imageRef"
 }
 
+$sbom = [ordered]@{
+    schema_version = "1.0"
+    artifact = [ordered]@{
+        type = "docker-image-archive"
+        image = $imageRef
+        archive = [System.IO.Path]::GetFileName($archivePath)
+        created_at = (Get-Date).ToUniversalTime().ToString("o")
+    }
+    plcrex = [ordered]@{
+        version = $plcrexVersion
+        commit = $plcrexCommit
+        commit_date = $plcrexCommitDate
+        commit_subject = $plcrexCommitSubject
+    }
+    source_repo = [ordered]@{
+        commit = $repoCommit
+        commit_date = $repoCommitDate
+        commit_subject = $repoCommitSubject
+    }
+}
+
+$sbom | ConvertTo-Json -Depth 6 | Set-Content $sbomPath
+
 Write-Host "Windows image ready:"
 Write-Host "  Image:   $imageRef"
 Write-Host "  Archive: $archivePath"
+Write-Host "  SBOM:    $sbomPath"
