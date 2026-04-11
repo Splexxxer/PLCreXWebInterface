@@ -44,6 +44,7 @@ venv/
 # Docker / container leftovers
 *.tar
 *.tar.gz
+image_output/
 
 # Dev server pid tracking
 .devserver-pids

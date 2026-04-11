@@ -152,5 +152,3 @@ fi
 
 PIP_NO_BUILD_ISOLATION=1 PYTHONPATH="$PYTHONPATH_EXTRA" "$PYTHON_BIN" -m pip install --no-build-isolation -r "$VENDOR_DIR/requirements.txt"
 PIP_NO_BUILD_ISOLATION=1 PYTHONPATH="$PYTHONPATH_EXTRA" "$PYTHON_BIN" -m pip install --no-build-isolation -e "$VENDOR_DIR" --no-deps
-
-"$REPO_ROOT/scripts/stage_runtime_tools.sh" stage

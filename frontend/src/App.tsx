@@ -15,10 +15,13 @@ type PlcrexCommand = {
   summary: string
   io?: string | null
   accepts_upload: boolean
+  accepts_text_input: boolean
   accepted_extensions: string[]
   output_extensions: string[]
   extra_path_label?: string | null
   extra_path_placeholder?: string | null
+  text_input_label?: string | null
+  text_input_placeholder?: string | null
   unsupported_reason?: string | null
   options: PlcrexOption[]
 }
@@ -183,6 +186,7 @@ function App() {
   const [commandError, setCommandError] = useState<string | null>(null)
   const [selectedCommand, setSelectedCommand] = useState<PlcrexCommand | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [textInput, setTextInput] = useState('')
   const [extraPath, setExtraPath] = useState('')
   const [optionValues, setOptionValues] = useState<Record<string, boolean>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -228,6 +232,7 @@ function App() {
     const defaults = Object.fromEntries(selectedCommand.options.map((option) => [option.name, option.default]))
     setOptionValues(defaults)
     setSelectedFile(null)
+    setTextInput('')
     setIsDragActive(false)
     setExtraPath('')
     setRunError(null)
@@ -243,6 +248,7 @@ function App() {
     }
     setSelectedCommand(null)
     setSelectedFile(null)
+    setTextInput('')
     setIsDragActive(false)
     setExtraPath('')
     setRunError(null)
@@ -292,7 +298,16 @@ function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (!selectedCommand || !selectedFile) {
+    if (!selectedCommand) {
+      return
+    }
+
+    if (selectedCommand.accepts_text_input) {
+      if (!textInput.trim()) {
+        setRunError('Enter a formula before running PLCreX.')
+        return
+      }
+    } else if (!selectedFile) {
       setRunError('Choose a file before running PLCreX.')
       return
     }
@@ -302,7 +317,11 @@ function App() {
 
     const formData = new FormData()
     formData.append('command', selectedCommand.name)
-    formData.append('file', selectedFile)
+    if (selectedCommand.accepts_text_input) {
+      formData.append('input_text', textInput.trim())
+    } else if (selectedFile) {
+      formData.append('file', selectedFile)
+    }
     formData.append(
       'options',
       JSON.stringify(
@@ -331,7 +350,7 @@ function App() {
             ? (detail as RunResult)
             : {
                 command: selectedCommand.name,
-                filename: selectedFile.name,
+                filename: selectedCommand.accepts_text_input ? textInput.trim() : (selectedFile?.name ?? null),
                 status: 'error',
                 stdout: '',
                 stderr: '',
@@ -343,7 +362,7 @@ function App() {
         updateHistory({
           id: crypto.randomUUID(),
           command: errorResult.command,
-          filename: errorResult.filename ?? selectedFile.name,
+          filename: errorResult.filename ?? (selectedCommand.accepts_text_input ? textInput.trim() : (selectedFile?.name ?? 'input')),
           timestamp: new Date().toISOString(),
           status: 'error',
           message: summarizeResult(errorResult),
@@ -357,7 +376,7 @@ function App() {
       updateHistory({
         id: crypto.randomUUID(),
         command: runResult.command,
-        filename: runResult.filename ?? selectedFile.name,
+        filename: runResult.filename ?? (selectedCommand.accepts_text_input ? textInput.trim() : (selectedFile?.name ?? 'input')),
         timestamp: new Date().toISOString(),
         status: runResult.status,
         message: summarizeResult(runResult),
@@ -368,7 +387,7 @@ function App() {
       setRunError(message)
       setResult({
         command: selectedCommand.name,
-        filename: selectedFile.name,
+        filename: selectedCommand.accepts_text_input ? textInput.trim() : (selectedFile?.name ?? null),
         status: 'error',
         stdout: '',
         stderr: '',
@@ -378,7 +397,7 @@ function App() {
       updateHistory({
         id: crypto.randomUUID(),
         command: selectedCommand.name,
-        filename: selectedFile.name,
+        filename: selectedCommand.accepts_text_input ? textInput.trim() : (selectedFile?.name ?? 'input'),
         timestamp: new Date().toISOString(),
         status: 'error',
         message,
@@ -455,13 +474,17 @@ function App() {
                     key={command.name}
                     type="button"
                     onClick={() => openCommand(command)}
-                    disabled={!command.accepts_upload}
+                    disabled={!command.accepts_upload && !command.accepts_text_input}
                     className="group flex min-h-52 flex-col rounded-[2rem] border border-stone-300/70 bg-white/80 p-5 text-left shadow-[0_18px_45px_rgba(68,64,60,0.1)] transition hover:-translate-y-0.5 hover:border-stone-500 hover:shadow-[0_24px_55px_rgba(68,64,60,0.16)] disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="text-lg font-semibold leading-6 text-stone-950">{command.name}</h3>
                       <span className="rounded-full bg-stone-900 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-stone-50">
-                        {command.accepted_extensions.length > 0 ? command.accepted_extensions.join(' ') : 'text'}
+                        {command.accepts_text_input
+                          ? 'text'
+                          : command.accepted_extensions.length > 0
+                            ? command.accepted_extensions.join(' ')
+                            : 'any'}
                       </span>
                     </div>
 
@@ -561,7 +584,9 @@ function App() {
           <div className="w-full max-w-2xl rounded-[2rem] border border-stone-300 bg-[linear-gradient(180deg,_#fffdfa_0%,_#f4eee4_100%)] p-6 shadow-[0_30px_80px_rgba(28,25,23,0.35)]">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-stone-500">Upload Window</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-stone-500">
+                  {selectedCommand.accepts_text_input ? 'Input Window' : 'Upload Window'}
+                </p>
                 <h2 className="mt-2 text-3xl font-semibold text-stone-950">{selectedCommand.name}</h2>
                 <p className="mt-3 text-sm leading-6 text-stone-600">{selectedCommand.summary}</p>
               </div>
@@ -572,44 +597,64 @@ function App() {
 
             <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
               <div className="rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
-                <label className="block text-[11px] font-semibold uppercase tracking-[0.25em] text-stone-500">Input File</label>
-                <label
-                  onDragEnter={handleDragEnter}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  className={`mt-3 flex cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border border-dashed px-5 py-8 text-center transition ${
-                    isDragActive
-                      ? 'border-stone-950 bg-stone-950 text-stone-50 shadow-[0_18px_40px_rgba(28,25,23,0.22)]'
-                      : 'border-stone-300 bg-stone-50/80 text-stone-700 hover:border-stone-500 hover:bg-white'
-                  }`}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept={inferAcceptValue(selectedCommand)}
-                    onChange={handleFileChange}
-                    className="sr-only"
-                  />
-                  <span className="text-sm font-semibold uppercase tracking-[0.24em]">
-                    {isDragActive ? 'Drop File Here' : 'Drag and Drop a File'}
-                  </span>
-                  <span className={`mt-3 text-sm ${isDragActive ? 'text-stone-200' : 'text-stone-500'}`}>
-                    {selectedFile ? selectedFile.name : 'or choose a file from your computer'}
-                  </span>
-                  <span
-                    className={`mt-5 rounded-full px-5 py-3 text-xs font-semibold uppercase tracking-[0.22em] transition ${
-                      isDragActive
-                        ? 'border border-stone-100 bg-stone-100 text-stone-950'
-                        : 'border border-stone-950 bg-stone-950 text-stone-50 hover:-translate-y-0.5 hover:bg-stone-800'
-                    }`}
-                  >
-                    Choose File
-                  </span>
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.25em] text-stone-500">
+                  {selectedCommand.accepts_text_input ? (selectedCommand.text_input_label ?? 'Input Text') : 'Input File'}
                 </label>
-                <p className="mt-3 text-xs text-stone-500">
-                  Accepted: {selectedCommand.accepted_extensions.length > 0 ? selectedCommand.accepted_extensions.join(', ') : 'any'}
-                </p>
+                {selectedCommand.accepts_text_input ? (
+                  <>
+                    <textarea
+                      value={textInput}
+                      onChange={(event) => {
+                        setTextInput(event.target.value)
+                        setRunError(null)
+                      }}
+                      placeholder={selectedCommand.text_input_placeholder ?? ''}
+                      rows={6}
+                      className="mt-3 w-full rounded-[1.5rem] border border-stone-300 bg-stone-50/80 px-4 py-4 text-sm leading-6 text-stone-800 outline-none placeholder:text-stone-400 focus:border-stone-500 focus:bg-white"
+                    />
+                    <p className="mt-3 text-xs text-stone-500">Enter the raw formula string expected by this PLCreX command.</p>
+                  </>
+                ) : (
+                  <>
+                    <label
+                      onDragEnter={handleDragEnter}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      className={`mt-3 flex cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border border-dashed px-5 py-8 text-center transition ${
+                        isDragActive
+                          ? 'border-stone-950 bg-stone-950 text-stone-50 shadow-[0_18px_40px_rgba(28,25,23,0.22)]'
+                          : 'border-stone-300 bg-stone-50/80 text-stone-700 hover:border-stone-500 hover:bg-white'
+                      }`}
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept={inferAcceptValue(selectedCommand)}
+                        onChange={handleFileChange}
+                        className="sr-only"
+                      />
+                      <span className="text-sm font-semibold uppercase tracking-[0.24em]">
+                        {isDragActive ? 'Drop File Here' : 'Drag and Drop a File'}
+                      </span>
+                      <span className={`mt-3 text-sm ${isDragActive ? 'text-stone-200' : 'text-stone-500'}`}>
+                        {selectedFile ? selectedFile.name : 'or choose a file from your computer'}
+                      </span>
+                      <span
+                        className={`mt-5 rounded-full px-5 py-3 text-xs font-semibold uppercase tracking-[0.22em] transition ${
+                          isDragActive
+                            ? 'border border-stone-100 bg-stone-100 text-stone-950'
+                            : 'border border-stone-950 bg-stone-950 text-stone-50 hover:-translate-y-0.5 hover:bg-stone-800'
+                        }`}
+                      >
+                        Choose File
+                      </span>
+                    </label>
+                    <p className="mt-3 text-xs text-stone-500">
+                      Accepted: {selectedCommand.accepted_extensions.length > 0 ? selectedCommand.accepted_extensions.join(', ') : 'any'}
+                    </p>
+                  </>
+                )}
               </div>
 
               {selectedCommand.extra_path_label && (

@@ -33,4 +33,4 @@ else
 fi
 
 echo "Packaging staging directory ready at $STAGING_DIR"
-echo "Add Docker image assembly steps here once runtime integration is ready."
+echo "Use 'just docker-build' to build and export the Windows container image from this repo."

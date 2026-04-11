@@ -1,7 +1,5 @@
 """Helpers for inspecting and executing PLCreX commands."""
 
-from __future__ import annotations
-
 import json
 import logging
 import os
@@ -13,7 +11,7 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
@@ -51,15 +49,18 @@ class CommandOptionSpec:
 @dataclass(frozen=True)
 class CommandSpec:
     accepts_upload: bool = True
-    input_extensions: tuple[str, ...] = ()
-    output_extensions: tuple[str, ...] = ()
-    option_specs: tuple[CommandOptionSpec, ...] = ()
-    unsupported_reason: str | None = None
+    accepts_text_input: bool = False
+    input_extensions: Tuple[str, ...] = ()
+    output_extensions: Tuple[str, ...] = ()
+    option_specs: Tuple[CommandOptionSpec, ...] = ()
+    unsupported_reason: Optional[str] = None
     uses_stdout: bool = False
-    runtime_tool: str | None = None
+    runtime_tool: Optional[str] = None
+    text_input_label: Optional[str] = None
+    text_input_placeholder: Optional[str] = None
 
 
-COMMAND_SPECS: dict[str, CommandSpec] = {
+COMMAND_SPECS: Dict[str, CommandSpec] = {
     "fbd-to-sctx": CommandSpec(
         input_extensions=(".xml",),
         output_extensions=(".sctx",),
@@ -125,8 +126,16 @@ COMMAND_SPECS: dict[str, CommandSpec] = {
     ),
     "test-case-gen": CommandSpec(
         accepts_upload=False,
-        unsupported_reason="This command needs a formula string instead of a file upload.",
+        accepts_text_input=True,
         uses_stdout=True,
+        text_input_label="Formula",
+        text_input_placeholder="Enter a formula such as a&b or (a|b)&~c",
+        option_specs=(
+            CommandOptionSpec("sc", "--sc", "Statement coverage", "Print statement coverage test cases."),
+            CommandOptionSpec("dc", "--dc", "Decision coverage", "Print decision coverage test cases."),
+            CommandOptionSpec("mcdc", "--mcdc", "MC/DC", "Print modified condition/decision coverage test cases."),
+            CommandOptionSpec("mcc", "--mcc", "MCC", "Print multiple condition coverage test cases."),
+        ),
     ),
     "xml-validator": CommandSpec(
         input_extensions=(".xml",),
@@ -137,7 +146,7 @@ COMMAND_SPECS: dict[str, CommandSpec] = {
     ),
 }
 
-RUNTIME_TOOL_CONFIG: dict[str, dict[str, object]] = {
+RUNTIME_TOOL_CONFIG: Dict[str, Dict[str, object]] = {
     "nusmv": {
         "label": "NuSMV runtime",
         "env": "PLCREX_NUSMV_PATH",
@@ -194,7 +203,7 @@ def get_runtime_temp_root() -> Path:
     return temp_root
 
 
-def resolve_runtime_tool(tool_name: str | None) -> Path | None:
+def resolve_runtime_tool(tool_name: Optional[str]) -> Optional[Path]:
     """Resolve a backend-managed external runtime binary/script."""
 
     if not tool_name:
@@ -219,7 +228,7 @@ def resolve_runtime_tool(tool_name: str | None) -> Path | None:
     return None
 
 
-def get_runtime_tool_label(tool_name: str | None) -> str | None:
+def get_runtime_tool_label(tool_name: Optional[str]) -> Optional[str]:
     """Return a human-readable runtime tool label."""
 
     if not tool_name:
@@ -230,7 +239,7 @@ def get_runtime_tool_label(tool_name: str | None) -> str | None:
     return str(config["label"])
 
 
-def get_vendor_path() -> Path | None:
+def get_vendor_path() -> Optional[Path]:
     """Return the vendor checkout path if it exists."""
 
     candidate = os.getenv(VENDOR_ENV)
@@ -255,7 +264,7 @@ def require_vendor_path() -> Path:
     return vendor_path
 
 
-def build_env() -> dict[str, str]:
+def build_env() -> Dict[str, str]:
     """Build an environment ensuring PLCreX is on PYTHONPATH when installed from vendor."""
 
     env = os.environ.copy()
@@ -273,7 +282,7 @@ def build_env() -> dict[str, str]:
     return env
 
 
-def build_help_command() -> list[str]:
+def build_help_command() -> List[str]:
     """Determine the command used to query PLCreX help output."""
 
     override = os.getenv(HELP_COMMAND_ENV)
@@ -282,7 +291,7 @@ def build_help_command() -> list[str]:
     return [get_default_plcrex_python(), "-m", "plcrex", "--help"]
 
 
-def build_run_command() -> list[str]:
+def build_run_command() -> List[str]:
     """Return the PLCreX base command without help arguments."""
 
     help_command = build_help_command()
@@ -368,7 +377,7 @@ def read_plcrex_cli_source() -> str:
     return cli_path.read_text(encoding="utf-8", errors="replace")
 
 
-def parse_commands_from_cli_source(source: str) -> list[PlcrexCommand]:
+def parse_commands_from_cli_source(source: str) -> List[PlcrexCommand]:
     """Extract command names and summaries from the PLCreX CLI source."""
 
     pattern = re.compile(
@@ -377,7 +386,7 @@ def parse_commands_from_cli_source(source: str) -> list[PlcrexCommand]:
         r'"""\s*(?P<summary>[^"\n]+?)\s*"""',
         re.DOTALL,
     )
-    commands: list[PlcrexCommand] = []
+    commands: List[PlcrexCommand] = []
     for match in pattern.finditer(source):
         name = match.group("name").strip()
         raw_summary = re.sub(r"\s+", " ", match.group("summary")).strip()
@@ -394,10 +403,10 @@ def parse_commands_from_cli_source(source: str) -> list[PlcrexCommand]:
     return commands
 
 
-def parse_command_table(lines: Iterable[str]) -> list[PlcrexCommand]:
+def parse_command_table(lines: Iterable[str]) -> List[PlcrexCommand]:
     """Parse the unicode table rendered by Typer/Rich."""
 
-    commands: list[PlcrexCommand] = []
+    commands: List[PlcrexCommand] = []
     capture = False
     for raw_line in lines:
         line = raw_line.rstrip("\n")
@@ -426,10 +435,10 @@ def parse_command_table(lines: Iterable[str]) -> list[PlcrexCommand]:
     return commands
 
 
-def parse_ascii_list(lines: Iterable[str]) -> list[PlcrexCommand]:
+def parse_ascii_list(lines: Iterable[str]) -> List[PlcrexCommand]:
     """Fallback parser when unicode tables are unavailable."""
 
-    commands: list[PlcrexCommand] = []
+    commands: List[PlcrexCommand] = []
     capture = False
     for raw_line in lines:
         line = raw_line.rstrip("\n")
@@ -452,16 +461,18 @@ def parse_ascii_list(lines: Iterable[str]) -> list[PlcrexCommand]:
     return commands
 
 
-def build_command_model(name: str, summary: str, io: str | None = None) -> PlcrexCommand:
+def build_command_model(name: str, summary: str, io: Optional[str] = None) -> PlcrexCommand:
     """Combine parsed help output with local command metadata."""
 
     spec = COMMAND_SPECS.get(name, CommandSpec())
     accepts_upload = getattr(spec, "accepts_upload", True)
+    accepts_text_input = getattr(spec, "accepts_text_input", False)
     unsupported_reason = spec.unsupported_reason
     if spec.runtime_tool:
         runtime_path = resolve_runtime_tool(spec.runtime_tool)
         if runtime_path is None:
             accepts_upload = False
+            accepts_text_input = False
             runtime_label = get_runtime_tool_label(spec.runtime_tool) or "Required backend runtime"
             unsupported_reason = f"{runtime_label} is not installed on the server yet."
     return PlcrexCommand(
@@ -469,10 +480,13 @@ def build_command_model(name: str, summary: str, io: str | None = None) -> Plcre
         summary=summary,
         io=io,
         accepts_upload=accepts_upload,
+        accepts_text_input=accepts_text_input,
         accepted_extensions=list(spec.input_extensions),
         output_extensions=list(spec.output_extensions),
         extra_path_label=None,
         extra_path_placeholder=None,
+        text_input_label=spec.text_input_label,
+        text_input_placeholder=spec.text_input_placeholder,
         unsupported_reason=unsupported_reason,
         options=[
             PlcrexOption(
@@ -486,7 +500,7 @@ def build_command_model(name: str, summary: str, io: str | None = None) -> Plcre
     )
 
 
-def parse_plcrex_help(output: str) -> list[PlcrexCommand]:
+def parse_plcrex_help(output: str) -> List[PlcrexCommand]:
     """Convert PLCreX help output into structured commands."""
 
     lines = output.splitlines()
@@ -514,7 +528,7 @@ def cached_plcrex_commands() -> tuple[PlcrexCommand, ...]:
     return tuple(commands)
 
 
-def get_plcrex_commands(force_refresh: bool = False) -> list[PlcrexCommand]:
+def get_plcrex_commands(force_refresh: bool = False) -> List[PlcrexCommand]:
     """Return PLCreX commands, optionally forcing a refresh."""
 
     if force_refresh:
@@ -534,7 +548,7 @@ def get_command_spec(command_name: str) -> CommandSpec:
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Unknown PLCreX command: {command_name}")
 
 
-def parse_option_values(raw_options: str | None) -> dict[str, bool]:
+def parse_option_values(raw_options: Optional[str]) -> Dict[str, bool]:
     """Decode frontend options from JSON."""
 
     if not raw_options:
@@ -546,7 +560,7 @@ def parse_option_values(raw_options: str | None) -> dict[str, bool]:
     if not isinstance(parsed, list):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Options must be a JSON array.")
 
-    values: dict[str, bool] = {}
+    values: Dict[str, bool] = {}
     for entry in parsed:
         if not isinstance(entry, dict):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Each option must be an object.")
@@ -565,8 +579,14 @@ async def write_upload(upload: UploadFile, target: Path) -> None:
     target.write_bytes(data)
 
 
-def validate_upload(upload: UploadFile | None, spec: CommandSpec) -> str | None:
-    """Validate upload presence and extension."""
+def validate_input(upload: Optional[UploadFile], input_text: Optional[str], spec: CommandSpec) -> Tuple[Optional[str], Optional[str]]:
+    """Validate either uploaded-file or raw-text input based on the command spec."""
+
+    if spec.accepts_text_input:
+        normalized = (input_text or "").strip()
+        if not normalized:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Enter a formula before running PLCreX.")
+        return None, normalized
 
     accepts_upload = getattr(spec, "accepts_upload", True)
     if not accepts_upload:
@@ -585,10 +605,10 @@ def validate_upload(upload: UploadFile | None, spec: CommandSpec) -> str | None:
             status.HTTP_400_BAD_REQUEST,
             detail=f"Wrong file format. Expected one of: {allowed}.",
         )
-    return suffix
+    return suffix, None
 
 
-def resolve_required_runtime_path(spec: CommandSpec) -> Path | None:
+def resolve_required_runtime_path(spec: CommandSpec) -> Optional[Path]:
     """Resolve required backend-managed runtime tools for a command."""
 
     if not spec.runtime_tool:
@@ -604,7 +624,7 @@ def resolve_required_runtime_path(spec: CommandSpec) -> Path | None:
     return resolved
 
 
-def build_export_stub(staging_dir: Path, input_filename: str) -> tuple[Path, Path]:
+def build_export_stub(staging_dir: Path, input_filename: str) -> Tuple[Path, Path]:
     """Create predictable input/output locations inside the temp workspace."""
 
     source_dir = staging_dir / "input"
@@ -617,18 +637,19 @@ def build_export_stub(staging_dir: Path, input_filename: str) -> tuple[Path, Pat
 def build_command_args(
     command_name: str,
     spec: CommandSpec,
-    source_path: Path,
+    source_path: Optional[Path],
     output_dir: Path,
-    extra_path: Path | None,
-    option_values: dict[str, bool],
-) -> list[str]:
+    extra_path: Optional[Path],
+    option_values: Dict[str, bool],
+    input_text: Optional[str] = None,
+) -> List[str]:
     """Build the subprocess argv for a PLCreX run."""
 
-    base_name = source_path.stem
+    base_name = source_path.stem if source_path is not None else "input"
     output_stub = output_dir / base_name
     output_path = output_stub.with_suffix(spec.output_extensions[0]) if spec.output_extensions else output_stub
 
-    args: list[str] = build_run_command() + [command_name]
+    args: List[str] = build_run_command() + [command_name]
 
     for option in spec.option_specs:
         enabled = option_values.get(option.name, option.default)
@@ -641,7 +662,9 @@ def build_command_args(
         if enabled:
             args.append(option.flag)
 
-    if command_name in {"fbd-to-sctx", "fbd-to-st-ext", "iec-check"}:
+    if spec.accepts_text_input:
+        args.append(input_text or "")
+    elif command_name in {"fbd-to-sctx", "fbd-to-st-ext", "iec-check"}:
         args.extend([str(source_path), str(extra_path), str(output_path)])
     elif command_name == "st-to-sctx":
         args.extend([str(source_path), str(output_path), str(extra_path)])
@@ -653,12 +676,12 @@ def build_command_args(
     return args
 
 
-def collect_outputs(output_dir: Path, spec: CommandSpec) -> list[PlcrexRunOutput]:
+def collect_outputs(output_dir: Path, spec: CommandSpec) -> List[PlcrexRunOutput]:
     """Read generated output files from the temp workspace."""
 
-    collected: list[PlcrexRunOutput] = []
+    collected: List[PlcrexRunOutput] = []
     candidate_dirs = [output_dir, output_dir / "PLCreX_outputs"]
-    seen_paths: set[Path] = set()
+    seen_paths: Set[Path] = set()
     for candidate_dir in candidate_dirs:
         if not candidate_dir.exists():
             continue
@@ -679,23 +702,26 @@ def collect_outputs(output_dir: Path, spec: CommandSpec) -> list[PlcrexRunOutput
 
 async def run_plcrex_command(
     command_name: str,
-    upload: UploadFile | None,
-    raw_options: str | None = None,
-    extra_path: str | None = None,
+    upload: Optional[UploadFile],
+    input_text: Optional[str] = None,
+    raw_options: Optional[str] = None,
+    extra_path: Optional[str] = None,
 ) -> PlcrexRunResponse:
     """Execute PLCreX for an uploaded file and return structured results."""
 
     spec = get_command_spec(command_name)
-    validate_upload(upload, spec)
+    _, normalized_input_text = validate_input(upload, input_text, spec)
     resolved_extra_path = resolve_required_runtime_path(spec)
     option_values = parse_option_values(raw_options)
 
     workspace = get_runtime_temp_root() / f"plcrex-web-{uuid4().hex}"
     workspace.mkdir(parents=True, exist_ok=False)
     try:
-        source_dir, output_dir = build_export_stub(workspace, upload.filename if upload else "input")
-        source_path = source_dir / Path(upload.filename or "input").name
+        source_name = upload.filename if upload else "input"
+        source_dir, output_dir = build_export_stub(workspace, source_name)
+        source_path: Optional[Path] = None
         if upload is not None:
+            source_path = source_dir / Path(upload.filename or "input").name
             await write_upload(upload, source_path)
 
         args = build_command_args(
@@ -705,6 +731,7 @@ async def run_plcrex_command(
             output_dir=output_dir,
             extra_path=resolved_extra_path,
             option_values=option_values,
+            input_text=normalized_input_text,
         )
 
         logger.info("Running PLCreX command: %s", args)
@@ -735,7 +762,7 @@ async def run_plcrex_command(
                 status.HTTP_400_BAD_REQUEST,
                 detail={
                     "command": command_name,
-                    "filename": upload.filename if upload else None,
+                    "filename": upload.filename if upload else normalized_input_text,
                     "status": "error",
                     "stdout": "",
                     "stderr": "",
@@ -747,12 +774,12 @@ async def run_plcrex_command(
         if stdout and not outputs and (spec.uses_stdout or not spec.output_extensions):
             synthesized_name = "stdout.txt"
             if spec.output_extensions:
-                synthesized_name = f"{source_path.stem}{spec.output_extensions[0]}"
+                synthesized_name = f"{(source_path.stem if source_path is not None else 'output')}{spec.output_extensions[0]}"
             outputs = [PlcrexRunOutput(filename=synthesized_name, content=stdout)]
 
         return PlcrexRunResponse(
             command=command_name,
-            filename=upload.filename if upload else None,
+            filename=upload.filename if upload else normalized_input_text,
             status="success",
             stdout=stdout,
             stderr=stderr,

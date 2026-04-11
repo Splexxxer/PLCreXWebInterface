@@ -1,8 +1,7 @@
 """Helpers for serving the built frontend bundle."""
 
-from __future__ import annotations
-
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -11,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 DEFAULT_DIST_PATH = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
-def mount_frontend(app: FastAPI, dist_path: Path | None = None) -> None:
+def mount_frontend(app: FastAPI, dist_path: Optional[Path] = None) -> None:
     """Wire the built frontend (if available) into the FastAPI application."""
 
     target = dist_path or DEFAULT_DIST_PATH
