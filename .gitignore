@@ -13,8 +13,15 @@ __pycache__/
 .env
 .env.*
 
-# PLCreX vendor checkout
-vendor/PLCreX/
+# Vendor worktrees and downloaded tool bundles
+vendor/*
+!vendor/.gitkeep
+!vendor/PLCreX/
+vendor/PLCreX/*
+!vendor/PLCreX/.gitkeep
+!vendor/runtime-tools/
+vendor/runtime-tools/*
+!vendor/runtime-tools/.gitkeep
 
 # Packaging + SBOM outputs
 .build/
@@ -37,10 +44,6 @@ venv/
 # Docker / container leftovers
 *.tar
 *.tar.gz
-
-# Keep patched sdists we ship intentionally
-!vendor/patched-packages/
-!vendor/patched-packages/*.tar.gz
 
 # Dev server pid tracking
 .devserver-pids
