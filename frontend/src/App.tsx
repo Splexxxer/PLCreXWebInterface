@@ -103,7 +103,24 @@ function downloadOutput(output: PlcrexOutput) {
   URL.revokeObjectURL(url)
 }
 
+function getRenderedOutputs(result: RunResult): PlcrexOutput[] {
+  if (result.outputs.length > 0) {
+    return result.outputs
+  }
+  if (result.stdout.trim()) {
+    return [
+      {
+        filename: 'stdout.txt',
+        content: result.stdout,
+      },
+    ]
+  }
+  return []
+}
+
 function LatestResultPanel({ result }: { result: RunResult | null }) {
+  const renderedOutputs = result ? getRenderedOutputs(result) : []
+
   return (
     <section className="rounded-[2rem] border border-stone-300/70 bg-[linear-gradient(135deg,_rgba(255,255,255,0.82),_rgba(245,240,232,0.92))] p-6 shadow-[0_18px_45px_rgba(68,64,60,0.08)]">
       <div className="flex items-center justify-between gap-4">
@@ -143,13 +160,15 @@ function LatestResultPanel({ result }: { result: RunResult | null }) {
             </div>
           </div>
 
-          {result.outputs.length > 0 && (
+          {renderedOutputs.length > 0 && (
             <div className="space-y-4">
-              {result.outputs.map((output) => (
+              {renderedOutputs.map((output) => (
                 <article key={output.filename} className="rounded-[1.5rem] border border-stone-200 bg-white/85 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-stone-500">Generated File</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-stone-500">
+                        {result.outputs.length > 0 ? 'Generated File' : 'Standard Output'}
+                      </p>
                       <h3 className="mt-2 text-base font-semibold text-stone-900">{output.filename}</h3>
                     </div>
                     <button
