@@ -8,11 +8,66 @@ PLCreX upstream repository: https://github.com/marwern/PLCreX
 ## Installation
 
 ### Current scope
-- Development is currently supported on Windows
-- PLCreX runtime is currently Windows-only
+- Runtime is currently Windows-only
 - Docker packaging targets Windows containers only
+- Local source development is currently supported on Windows
 
-### Requirements
+### Docker installation
+
+This is the primary installation path for end users. You do not need this repository to run the packaged app.
+
+Requirements:
+- Docker Desktop installed
+- Docker Desktop switched to Windows container mode
+- the released Windows image archive downloaded locally
+
+Steps:
+
+1. Download the release assets:
+   - `plcrex-web-windows-ltsc2022.tar`
+2. Switch Docker Desktop to Windows containers.
+3. Load the image archive:
+
+```powershell
+docker load --input .\plcrex-web-windows-ltsc2022.tar
+```
+
+4. Start the container:
+
+```powershell
+docker run -d --name plcrex-web -p 8000:8000 plcrex-web:windows-ltsc2022
+```
+
+5. Open the app:
+   - UI: `http://127.0.0.1:8000`
+   - API docs: `http://127.0.0.1:8000/docs`
+   - Health: `http://127.0.0.1:8000/health`
+
+Useful Docker commands:
+
+```powershell
+docker ps
+docker logs --tail 100 plcrex-web
+docker stop plcrex-web
+docker rm plcrex-web
+```
+
+The SBOM file records:
+- the PLCreX version inside the image
+- the PLCreX commit used to build it
+- the `PLCreXWebInterface` repo commit used to create the image
+
+### Docker installation notes
+
+- If Docker reports that the server OS is `linux`, Docker Desktop is in the wrong mode. Switch to Windows containers and run the image again.
+- If you want to run the app on a different port, change the left side of `-p`, for example `-p 8080:8000`.
+- If a container with the same name already exists, remove it first with `docker rm -f plcrex-web`.
+
+## Dev Installation
+
+This path is for working on the source code, rebuilding the frontend, or creating new Windows image archives from this repository.
+
+### Dev requirements
 - Python installed
 - Python 3.9 installed for PLCreX bootstrap
 - Node.js and npm installed
@@ -23,7 +78,7 @@ PLCreX upstream repository: https://github.com/marwern/PLCreX
 - IEC Checker available as `iec_checker_Windows_x86_64_v0.4.exe` if you want `iec-check`
 - Kicodia available as `kicodia-win.bat` if you want `st-to-sctx`
 
-### PowerShell setup
+### Dev PowerShell setup
 From the repository root:
 
 ```powershell
@@ -47,7 +102,7 @@ On Windows, the bootstrap script first tries the standard user install path:
 
 If you prefer the Python launcher, `PYTHON_BOOTSTRAP="py -3.9"` is also supported.
 
-### Backend runtime tools
+### Dev runtime tools
 Commands such as `fbd-to-sctx`, `fbd-to-st-ext`, `iec-check`, and `st-to-sctx` depend on external binaries that must be present on the backend as part of a complete local dev setup. The browser UI does not ask the user for these paths anymore.
 
 PLCreX's own installation guide lists these as external tools called by PLCreX and points to where developers should download them:
@@ -71,25 +126,6 @@ vendor/runtime-tools/kicodia/kicodia-win.bat
 
 The FastAPI backend auto-detects those repo-local paths. If a required runtime tool is missing, only the PLCreX commands that depend on it will be unavailable in the frontend.
 
-#### Developer install steps
-
-Install the external tools on your Windows machine first, then copy them into this repo.
-
-1. Install NuSMV and make sure you have a real `NuSMV.exe`.
-2. Install IEC Checker and make sure you have a real `iec_checker_Windows_x86_64_v0.4.exe` or equivalent `iec_checker.exe`.
-3. Install Kicodia and make sure you have a real `kicodia-win.bat`.
-4. Copy them into the repo-managed default folders:
-
-```text
-vendor/runtime-tools/nusmv/NuSMV.exe
-vendor/runtime-tools/iec-checker/iec_checker_Windows_x86_64_v0.4.exe
-vendor/runtime-tools/kicodia/kicodia-win.bat
-```
-
-Those are the default backend locations and the right paths to preserve later if these runtimes are folded into the Docker image build.
-
-If one of these tools is still missing, only the PLCreX commands that depend on it will be unavailable in the frontend.
-
 Then open:
 - Frontend: `http://127.0.0.1:5173`
 - Backend docs: `http://127.0.0.1:8000/docs`
@@ -101,7 +137,7 @@ Stop the dev servers with:
 just dev-down
 ```
 
-## Windows Container Image
+## Windows Container Image Build
 
 The Docker image now targets Windows containers so the packaged runtime stays aligned with the Windows-only PLCreX toolchain.
 
@@ -156,7 +192,7 @@ $env:IMAGE_OUTPUT_DIR = "image_output"
 just docker-build
 ```
 
-### Run the built image
+### Run the built image locally
 
 Run the built Windows container with:
 
