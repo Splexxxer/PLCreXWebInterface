@@ -28,6 +28,15 @@ TABLE_ROW_PREFIXES = ("|", "│")
 TABLE_SECTION_EDGES = ("+-", "╰")
 ASCII_COMMAND_PREFIX = "  "
 
+DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024 * 1024
+DEFAULT_MAX_TEXT_INPUT_CHARS = 16 * 1024
+DEFAULT_MAX_OPTIONS_BYTES = 16 * 1024
+DEFAULT_PROCESS_TIMEOUT_SECONDS = 120
+DEFAULT_MAX_OUTPUT_FILES = 24
+DEFAULT_MAX_OUTPUT_FILE_BYTES = 2 * 1024 * 1024
+DEFAULT_MAX_TOTAL_OUTPUT_BYTES = 8 * 1024 * 1024
+DEFAULT_MAX_LOG_BYTES = 256 * 1024
+
 
 class PlcrexCommandError(RuntimeError):
     """Raised when PLCreX command discovery fails."""
@@ -201,6 +210,55 @@ def get_runtime_temp_root() -> Path:
     temp_root = Path(configured) if configured else Path.cwd() / ".tmp" / "plcrex-runtime"
     temp_root.mkdir(parents=True, exist_ok=True)
     return temp_root
+
+
+def get_int_env(name: str, default: int) -> int:
+    """Return a positive integer environment value or the default."""
+
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid integer value for %s: %r", name, raw)
+        return default
+    if parsed <= 0:
+        logger.warning("Ignoring non-positive integer value for %s: %r", name, raw)
+        return default
+    return parsed
+
+
+def get_max_upload_bytes() -> int:
+    return get_int_env("PLCREX_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)
+
+
+def get_max_text_input_chars() -> int:
+    return get_int_env("PLCREX_MAX_TEXT_INPUT_CHARS", DEFAULT_MAX_TEXT_INPUT_CHARS)
+
+
+def get_max_options_bytes() -> int:
+    return get_int_env("PLCREX_MAX_OPTIONS_BYTES", DEFAULT_MAX_OPTIONS_BYTES)
+
+
+def get_process_timeout_seconds() -> int:
+    return get_int_env("PLCREX_PROCESS_TIMEOUT_SECONDS", DEFAULT_PROCESS_TIMEOUT_SECONDS)
+
+
+def get_max_output_files() -> int:
+    return get_int_env("PLCREX_MAX_OUTPUT_FILES", DEFAULT_MAX_OUTPUT_FILES)
+
+
+def get_max_output_file_bytes() -> int:
+    return get_int_env("PLCREX_MAX_OUTPUT_FILE_BYTES", DEFAULT_MAX_OUTPUT_FILE_BYTES)
+
+
+def get_max_total_output_bytes() -> int:
+    return get_int_env("PLCREX_MAX_TOTAL_OUTPUT_BYTES", DEFAULT_MAX_TOTAL_OUTPUT_BYTES)
+
+
+def get_max_log_bytes() -> int:
+    return get_int_env("PLCREX_MAX_LOG_BYTES", DEFAULT_MAX_LOG_BYTES)
 
 
 def resolve_runtime_tool(tool_name: Optional[str]) -> Optional[Path]:
@@ -553,6 +611,8 @@ def parse_option_values(raw_options: Optional[str]) -> Dict[str, bool]:
 
     if not raw_options:
         return {}
+    if len(raw_options.encode("utf-8")) > get_max_options_bytes():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Option payload is too large.")
     try:
         parsed = json.loads(raw_options)
     except json.JSONDecodeError as exc:
@@ -575,8 +635,22 @@ def parse_option_values(raw_options: Optional[str]) -> Dict[str, bool]:
 async def write_upload(upload: UploadFile, target: Path) -> None:
     """Persist an uploaded file to disk."""
 
-    data = await upload.read()
-    target.write_bytes(data)
+    chunk_size = 1024 * 1024
+    max_bytes = get_max_upload_bytes()
+    written = 0
+
+    with target.open("wb") as handle:
+        while True:
+            chunk = await upload.read(chunk_size)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > max_bytes:
+                raise HTTPException(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Uploaded file is too large. Maximum size is {max_bytes // (1024 * 1024)} MB.",
+                )
+            handle.write(chunk)
 
 
 def validate_input(upload: Optional[UploadFile], input_text: Optional[str], spec: CommandSpec) -> Tuple[Optional[str], Optional[str]]:
@@ -586,6 +660,8 @@ def validate_input(upload: Optional[UploadFile], input_text: Optional[str], spec
         normalized = (input_text or "").strip()
         if not normalized:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Enter a formula before running PLCreX.")
+        if len(normalized) > get_max_text_input_chars():
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Text input is too large.")
         return None, normalized
 
     accepts_upload = getattr(spec, "accepts_upload", True)
@@ -682,15 +758,37 @@ def collect_outputs(output_dir: Path, spec: CommandSpec) -> List[PlcrexRunOutput
     collected: List[PlcrexRunOutput] = []
     candidate_dirs = [output_dir, output_dir / "PLCreX_outputs"]
     seen_paths: Set[Path] = set()
+    max_output_files = get_max_output_files()
+    max_output_file_bytes = get_max_output_file_bytes()
+    max_total_output_bytes = get_max_total_output_bytes()
+    total_output_bytes = 0
+
     for candidate_dir in candidate_dirs:
         if not candidate_dir.exists():
             continue
         for file_path in sorted(candidate_dir.iterdir()):
+            if len(collected) >= max_output_files:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail="PLCreX generated too many output files for a single request.",
+                )
             if not file_path.is_file() or file_path in seen_paths:
                 continue
             seen_paths.add(file_path)
             if spec.output_extensions and file_path.suffix.lower() not in spec.output_extensions:
                 continue
+            file_size = file_path.stat().st_size
+            if file_size > max_output_file_bytes:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"PLCreX generated an output file that exceeds the {max_output_file_bytes // (1024 * 1024)} MB response limit.",
+                )
+            total_output_bytes += file_size
+            if total_output_bytes > max_total_output_bytes:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"PLCreX generated more than {max_total_output_bytes // (1024 * 1024)} MB of output for a single request.",
+                )
             collected.append(
                 PlcrexRunOutput(
                     filename=file_path.name,
@@ -698,6 +796,27 @@ def collect_outputs(output_dir: Path, spec: CommandSpec) -> List[PlcrexRunOutput
                 )
             )
     return collected
+
+
+def read_limited_process_log(log_path: Path) -> str:
+    """Read process output from disk with a soft cap for frontend responses."""
+
+    max_bytes = get_max_log_bytes()
+    if not log_path.exists():
+        return ""
+
+    size = log_path.stat().st_size
+    if size == 0:
+        return ""
+
+    with log_path.open("rb") as handle:
+        content = handle.read(max_bytes + 1)
+
+    text = content[:max_bytes].decode("utf-8", errors="replace").strip()
+    if size > max_bytes:
+        truncated_note = f"\n\n[truncated after {max_bytes // 1024} KiB]"
+        return f"{text}{truncated_note}" if text else truncated_note.strip()
+    return text
 
 
 async def run_plcrex_command(
@@ -720,6 +839,8 @@ async def run_plcrex_command(
         source_name = upload.filename if upload else "input"
         source_dir, output_dir = build_export_stub(workspace, source_name)
         source_path: Optional[Path] = None
+        stdout_log = workspace / "stdout.log"
+        stderr_log = workspace / "stderr.log"
         if upload is not None:
             source_path = source_dir / Path(upload.filename or "input").name
             await write_upload(upload, source_path)
@@ -735,18 +856,26 @@ async def run_plcrex_command(
         )
 
         logger.info("Running PLCreX command: %s", args)
-        completed = subprocess.run(
-            args,
-            capture_output=True,
-            env=build_env(),
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=require_vendor_path(),
-        )
+        timeout_seconds = get_process_timeout_seconds()
+        try:
+            with stdout_log.open("wb") as stdout_handle, stderr_log.open("wb") as stderr_handle:
+                completed = subprocess.run(
+                    args,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                    env=build_env(),
+                    cwd=require_vendor_path(),
+                    timeout=timeout_seconds,
+                )
+        except subprocess.TimeoutExpired as exc:
+            logger.warning("PLCreX command timed out: command=%s timeout=%ss", command_name, exc.timeout)
+            raise HTTPException(
+                status.HTTP_408_REQUEST_TIMEOUT,
+                detail=f"PLCreX exceeded the {timeout_seconds} second runtime limit for a single request.",
+            ) from exc
 
-        stdout = (completed.stdout or "").strip()
-        stderr = (completed.stderr or "").strip()
+        stdout = read_limited_process_log(stdout_log)
+        stderr = read_limited_process_log(stderr_log)
         outputs = collect_outputs(output_dir, spec)
 
         if completed.returncode != 0:

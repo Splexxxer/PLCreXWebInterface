@@ -56,6 +56,7 @@ The SBOM file records:
 - the PLCreX version inside the image
 - the PLCreX commit used to build it
 - the `PLCreXWebInterface` repo commit used to create the image
+- the bundled runtime tool entries detected from `vendor/runtime-tools/`, including path, hash, and version metadata when available
 
 ### Docker installation notes
 
@@ -137,6 +138,50 @@ Stop the dev servers with:
 just dev-down
 ```
 
+### Dev runtime limits
+
+The backend now applies conservative resource limits so obviously abusive requests fail early while normal PLCreX usage remains unaffected.
+
+Default values:
+
+- `PLCREX_MAX_UPLOAD_BYTES=16777216` (16 MB upload limit)
+- `PLCREX_MAX_TEXT_INPUT_CHARS=16384` (16 KiB text input limit)
+- `PLCREX_MAX_OPTIONS_BYTES=16384` (16 KiB JSON options payload limit)
+- `PLCREX_PROCESS_TIMEOUT_SECONDS=120` (2 minute runtime limit per request)
+- `PLCREX_MAX_OUTPUT_FILES=24` (maximum number of returned output files)
+- `PLCREX_MAX_OUTPUT_FILE_BYTES=2097152` (2 MB per returned output file)
+- `PLCREX_MAX_TOTAL_OUTPUT_BYTES=8388608` (8 MB total returned file content)
+- `PLCREX_MAX_LOG_BYTES=262144` (256 KiB of stdout or stderr returned to the UI)
+
+An example configuration file is included as [example.env](C:/Users/Marce/PycharmProjects/PLCreXWebInterface/example.env:1). The real `.env` file is gitignored.
+
+Important:
+- The app does not auto-load `.env`.
+- These values must be set in the runtime environment before starting the backend.
+
+PowerShell example for local development:
+
+```powershell
+$env:PLCREX_MAX_UPLOAD_BYTES = "33554432"
+$env:PLCREX_PROCESS_TIMEOUT_SECONDS = "180"
+just dev-up
+```
+
+Docker example:
+
+```powershell
+docker run -d --name plcrex-web -p 8000:8000 `
+  -e PLCREX_MAX_UPLOAD_BYTES=33554432 `
+  -e PLCREX_PROCESS_TIMEOUT_SECONDS=180 `
+  plcrex-web:windows-ltsc2022
+```
+
+Are the defaults high enough?
+
+- For normal PLCreX usage, probably yes. A 16 MB upload limit and 120 second runtime limit are already generous for typical XML/ST inputs and keep accidental runaway jobs from tying up the service.
+- If your real-world files are regularly larger than a few megabytes, or some commands legitimately take more than 2 minutes, raise the relevant limit in your environment rather than changing code.
+- I would not lower them further without first testing representative user files, because the current values are intended to stay invisible for normal users and only catch extreme cases.
+
 ## Windows Container Image Build
 
 The Docker image now targets Windows containers so the packaged runtime stays aligned with the Windows-only PLCreX toolchain.
@@ -182,6 +227,8 @@ image_output/plcrex-web-windows-ltsc2022.tar
 ```
 
 If the archive already exists, it is replaced.
+
+The generated SBOM JSON alongside the archive also includes the detected runtime tool entries for NuSMV, IEC Checker, and Kicodia when those files are present under `vendor/runtime-tools/`.
 
 You can override the defaults with environment variables:
 

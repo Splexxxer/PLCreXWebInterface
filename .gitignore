@@ -12,6 +12,7 @@ __pycache__/
 .venv-plcrex/
 .env
 .env.*
+!.env.example
 
 # Vendor worktrees and downloaded tool bundles
 vendor/*
